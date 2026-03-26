@@ -46,7 +46,7 @@ interface AdminNotification {
 }
 
 const CATEGORIES: Category[] = ["sneakers", "air-force-1", "jordans", "jerseys", "new-arrivals"];
-const BRANDS = ["Nike", "Jordan", "Adidas", "New Balance", "Puma", "Reebok", "Mitchell & Ness", "Other"];
+const PRESET_BRANDS = ["Nike", "Jordan", "Adidas", "New Balance", "Puma", "Reebok", "Mitchell & Ness", "Other"];
 
 // ─── Product Form Modal ────────────────────────────────────────────────────────
 interface ProductFormProps {
@@ -68,7 +68,6 @@ const emptyProduct = (): AdminProduct => ({
   badge: "",
 });
 
-// Files pending upload: { previewUrl, file }
 interface PendingImage {
   previewUrl: string;
   file: File;
@@ -76,13 +75,26 @@ interface PendingImage {
 
 const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) => {
   const [form, setForm] = useState<AdminProduct>(initial ? { ...initial } : emptyProduct());
-  // Existing URLs (already in Supabase) + new pending files
   const [existingImages, setExistingImages] = useState<string[]>(initial?.images ?? []);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Brand: detect if initial brand is a custom one ───────────────────────
+  const isCustomBrand = initial?.brand && !PRESET_BRANDS.includes(initial.brand);
+  const [brandSelect, setBrandSelect] = useState<string>(isCustomBrand ? "Other" : (initial?.brand ?? "Nike"));
+  const [customBrand, setCustomBrand] = useState<string>(isCustomBrand ? (initial?.brand ?? "") : "");
+
+  // Keep form.brand in sync with the brand selectors
+  useEffect(() => {
+    if (brandSelect === "Other") {
+      setForm((f) => ({ ...f, brand: customBrand }));
+    } else {
+      setForm((f) => ({ ...f, brand: brandSelect }));
+    }
+  }, [brandSelect, customBrand]);
 
   const set = (key: keyof AdminProduct, val: unknown) =>
     setForm((f) => ({ ...f, [key]: val }));
@@ -106,7 +118,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
   const removeExisting = (idx: number) =>
     setExistingImages((prev) => prev.filter((_, i) => i !== idx));
 
-  // Upload a single file to Supabase Storage, return public URL
   const uploadFile = async (file: File): Promise<string> => {
     const ext = file.name.split(".").pop();
     const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
@@ -123,7 +134,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
     setSaving(true);
     setUploadError("");
     try {
-      // Upload all pending images
       const uploadedUrls = await Promise.all(pendingImages.map((p) => uploadFile(p.file)));
       const allImages = [...existingImages, ...uploadedUrls];
 
@@ -140,7 +150,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
       };
 
       if (initial?.id) {
-        // Update existing
         const { data, error } = await supabase
           .from("products")
           .update(payload)
@@ -150,7 +159,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
         if (error) throw error;
         onSave(dbRowToProduct(data));
       } else {
-        // Insert new
         const { data, error } = await supabase
           .from("products")
           .insert(payload)
@@ -160,14 +168,14 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
         onSave(dbRowToProduct(data));
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Upload failed. Check your Supabase config.";
+      const message = err instanceof Error ? err.message : "Save failed. Please try again.";
       setUploadError(message);
       setSaving(false);
     }
   };
 
   const totalImages = existingImages.length + pendingImages.length;
-  const valid = form.name.trim() && form.price > 0 && form.size.trim() && form.categories.length > 0;
+  const valid = form.name.trim() && form.price > 0 && form.size.trim() && form.categories.length > 0 && form.brand.trim();
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm px-4 pb-4 sm:pb-0">
@@ -177,7 +185,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
             <h2 className="font-semibold text-foreground text-sm">
               {initial ? "Edit Product" : "Add New Product"}
             </h2>
-            <p className="text-xs text-foreground-muted mt-0.5">Saved directly to Supabase</p>
+            <p className="text-xs text-foreground-muted mt-0.5">Fill in the details below</p>
           </div>
           <button onClick={onClose} className="text-foreground-subtle hover:text-foreground transition-colors p-1">
             <X size={18} />
@@ -185,7 +193,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-5">
-          {/* Upload error */}
           {uploadError && (
             <div className="flex items-start gap-2 px-3 py-2.5 bg-destructive/10 border border-destructive/20 rounded-xl">
               <AlertCircle size={14} className="text-destructive flex-shrink-0 mt-0.5" />
@@ -211,9 +218,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
               <p className="text-xs text-foreground-muted">
                 Drag & drop photos or <span className="text-primary">browse</span>
               </p>
-              <p className="text-[10px] text-foreground-subtle mt-1">
-                Uploaded to Supabase Storage · JPG, PNG, WEBP
-              </p>
+              <p className="text-[10px] text-foreground-subtle mt-1">JPG, PNG, WEBP</p>
               <input
                 ref={fileRef}
                 type="file"
@@ -224,7 +229,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
               />
             </div>
 
-            {/* Previews */}
             {(existingImages.length > 0 || pendingImages.length > 0) && (
               <div className="flex gap-2 mt-3 flex-wrap">
                 {existingImages.map((url, i) => (
@@ -263,7 +267,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
           {/* Name & Brand */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Name *</label>
+              <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5 h-8 flex items-center">Name *</label>
               <input
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
@@ -272,24 +276,32 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Brand *</label>
+              <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5 h-8 flex items-center">Brand *</label>
               <div className="relative">
                 <select
-                  value={form.brand}
-                  onChange={(e) => set("brand", e.target.value)}
+                  value={brandSelect}
+                  onChange={(e) => setBrandSelect(e.target.value)}
                   className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2.5 text-sm text-foreground appearance-none focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
                 >
-                  {BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+                  {PRESET_BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
                 </select>
                 <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-subtle pointer-events-none" />
               </div>
+              {brandSelect === "Other" && (
+                <input
+                  value={customBrand}
+                  onChange={(e) => setCustomBrand(e.target.value)}
+                  placeholder="Enter brand name"
+                  className="w-full mt-2 bg-surface-2 border border-primary/40 rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+                />
+              )}
             </div>
           </div>
 
           {/* Price, Size, Condition */}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Price (KES) *</label>
+              <label className="text-[9px] font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5 h-8 flex items-center">Price (KES) *</label>
               <input
                 type="number"
                 value={form.price || ""}
@@ -300,7 +312,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Size *</label>
+              <label className="text-[9px] font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5 h-8 flex items-center">Size *</label>
               <input
                 value={form.size}
                 onChange={(e) => set("size", e.target.value)}
@@ -309,7 +321,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Condition</label>
+              <label className="text-[9px] font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5 h-8 flex items-center">Condition</label>
               <div className="relative">
                 <select
                   value={form.condition}
@@ -408,7 +420,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ initial, onSave, onClose }) =
   );
 };
 
-// ─── Notifications Admin Component ──────────────────────────────────────────────
+// ─── Notifications Admin ──────────────────────────────────────────────────────
 const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -421,38 +433,29 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
+  useEffect(() => { fetchNotifications(); }, []);
 
   const fetchNotifications = async () => {
     const { data, error } = await supabase
       .from("notifications")
       .select("*")
       .order("created_at", { ascending: false });
-    
-    if (!error && data) {
-      setNotifications(data);
-    }
+    if (!error && data) setNotifications(data);
     setLoading(false);
   };
 
   const handleSend = async () => {
     if (!form.title.trim() || !form.body.trim()) return;
-    
     setSending(true);
     setError("");
-    const { error } = await supabase
-      .from("notifications")
-      .insert({
-        type: form.type,
-        title: form.title,
-        body: form.body,
-        unread: true,
-      });
-    
+    const { error } = await supabase.from("notifications").insert({
+      type: form.type,
+      title: form.title,
+      body: form.body,
+      unread: true,
+    });
     if (!error) {
-      setSuccess("Notification sent successfully!");
+      setSuccess("Notification sent!");
       setForm({ type: "new-drop", title: "", body: "" });
       fetchNotifications();
       setTimeout(() => setSuccess(""), 3000);
@@ -464,14 +467,8 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase
-      .from("notifications")
-      .delete()
-      .eq("id", id);
-    
-    if (!error) {
-      fetchNotifications();
-    }
+    const { error } = await supabase.from("notifications").delete().eq("id", id);
+    if (!error) fetchNotifications();
   };
 
   return (
@@ -488,15 +485,12 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-5">
-          {/* Success message */}
           {success && (
             <div className="flex items-center gap-2 px-3 py-2.5 bg-success/10 border border-success/20 rounded-xl">
               <CheckCircle size={14} className="text-success" />
               <p className="text-xs text-success">{success}</p>
             </div>
           )}
-
-          {/* Error message */}
           {error && (
             <div className="flex items-center gap-2 px-3 py-2.5 bg-destructive/10 border border-destructive/20 rounded-xl">
               <AlertCircle size={14} className="text-destructive" />
@@ -504,10 +498,8 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             </div>
           )}
 
-          {/* Create notification form */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-foreground">Create New Notification</h3>
-            
             <div>
               <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Type</label>
               <div className="flex gap-2 flex-wrap">
@@ -526,7 +518,6 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 ))}
               </div>
             </div>
-
             <div>
               <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Title *</label>
               <input
@@ -536,7 +527,6 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
               />
             </div>
-
             <div>
               <label className="text-xs font-semibold text-foreground-muted uppercase tracking-widest block mb-1.5">Message *</label>
               <textarea
@@ -547,24 +537,17 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none"
               />
             </div>
-
             <button
               onClick={handleSend}
               disabled={!form.title.trim() || !form.body.trim() || sending}
               className="w-full bg-gradient-primary text-primary-foreground rounded-xl py-3 text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-all shadow-glow-sm flex items-center justify-center gap-2"
             >
               {sending ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                "Send Notification"
-              )}
+                <><Loader2 size={14} className="animate-spin" /> Sending...</>
+              ) : "Send Notification"}
             </button>
           </div>
 
-          {/* Existing notifications */}
           <div className="pt-4 border-t border-border">
             <h3 className="text-sm font-semibold text-foreground mb-3">Existing Notifications</h3>
             {loading ? (
@@ -587,9 +570,7 @@ const NotificationsAdmin: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                       <p className="text-xs text-foreground-muted mt-0.5">{notif.body}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] text-primary">{notif.type}</span>
-                        {notif.unread && (
-                          <span className="text-[10px] text-foreground-subtle">• Unread</span>
-                        )}
+                        {notif.unread && <span className="text-[10px] text-foreground-subtle">· Unread</span>}
                       </div>
                     </div>
                     <button
@@ -627,55 +608,59 @@ function dbRowToProduct(row: any): AdminProduct {
 }
 
 // ─── Product Row ──────────────────────────────────────────────────────────────
+// Fixed: stacked layout prevents text overlap on all screen sizes
 const ProductRow: React.FC<{
   product: AdminProduct;
   onEdit: () => void;
   onDelete: () => void;
 }> = ({ product, onEdit, onDelete }) => (
-  <div className="flex items-center gap-4 px-4 py-3 border-b border-border hover:bg-surface-2 transition-colors group">
-    <div className="w-14 h-14 rounded-xl bg-surface-3 flex-shrink-0 overflow-hidden border border-border">
+  <div className="flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-surface-2 transition-colors group">
+    {/* Thumbnail */}
+    <div className="w-12 h-12 rounded-xl bg-surface-3 flex-shrink-0 overflow-hidden border border-border">
       {product.images[0] ? (
         <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
-          <ImageIcon size={18} className="text-foreground-subtle" />
+          <ImageIcon size={16} className="text-foreground-subtle" />
         </div>
       )}
     </div>
 
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2">
-        <p className="text-sm font-semibold text-foreground truncate">{product.name}</p>
+    {/* Info — stacked to avoid overlap */}
+    <div className="flex-1 min-w-0 space-y-0.5">
+      {/* Row 1: name + badge */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <p className="text-sm font-semibold text-foreground truncate max-w-[140px]">{product.name}</p>
         {product.badge && (
           <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/20 flex-shrink-0">
             {product.badge}
           </span>
         )}
       </div>
-      <div className="flex items-center gap-2 mt-0.5">
-        <span className="text-xs text-foreground-muted">{product.brand}</span>
-        <span className="text-foreground-subtle text-xs">·</span>
-        <span className="text-xs text-foreground-muted">{product.size}</span>
-        <span className="text-foreground-subtle text-xs">·</span>
-        <span className="text-xs text-foreground-muted">{product.condition}/10</span>
+      {/* Row 2: brand · size · condition */}
+      <p className="text-xs text-foreground-muted truncate">
+        {product.brand} · {product.size} · {product.condition}/10
+      </p>
+      {/* Row 3: price · photos */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold text-primary">KES {product.price.toLocaleString()}</span>
+        <span className="text-[10px] text-foreground-subtle">
+          · {product.images.length} photo{product.images.length !== 1 ? "s" : ""}
+        </span>
       </div>
     </div>
 
-    <div className="text-right flex-shrink-0">
-      <p className="text-sm font-bold text-primary">KES {product.price.toLocaleString()}</p>
-      <p className="text-[10px] text-foreground-subtle mt-0.5">{product.images.length} photo{product.images.length !== 1 ? "s" : ""}</p>
-    </div>
-
-    <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+    {/* Actions — always visible on mobile, hover on desktop */}
+    <div className="flex gap-1 flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
       <button
         onClick={onEdit}
-        className="p-2 rounded-lg bg-surface-3 hover:bg-primary/20 hover:text-primary text-foreground-muted transition-all text-xs"
+        className="px-2.5 py-1.5 rounded-lg bg-surface-3 hover:bg-primary/20 hover:text-primary text-foreground-muted transition-all text-xs font-medium"
       >
         Edit
       </button>
       <button
         onClick={onDelete}
-        className="p-2 rounded-lg bg-surface-3 hover:bg-destructive/20 hover:text-destructive text-foreground-muted transition-all"
+        className="p-1.5 rounded-lg bg-surface-3 hover:bg-destructive/20 hover:text-destructive text-foreground-muted transition-all"
       >
         <Trash2 size={13} />
       </button>
@@ -694,7 +679,6 @@ const Dashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
   const [saved, setSaved] = useState(false);
   const [search, setSearch] = useState("");
 
-  // Load products from Supabase on mount
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
@@ -702,7 +686,6 @@ const Dashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
         .from("products")
         .select("*")
         .order("created_at", { ascending: false });
-
       if (error) {
         setFetchError(error.message);
       } else {
@@ -750,20 +733,21 @@ const Dashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
             <Shield size={15} className="text-primary" />
           </div>
           <div>
-            <h1 className="font-display text-xl text-gradient tracking-widest leading-none">SOLE VAULT</h1>
+            <h1 className="font-display text-xl text-gradient tracking-widest leading-none">Sneaker City</h1>
             <p className="text-[9px] text-foreground-subtle tracking-widest uppercase">Admin Panel</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Clean "Saved!" toast — no tech details */}
           {saved && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-success/20 border border-success/30 animate-fade-up">
               <CheckCircle size={11} className="text-success" />
-              <span className="text-xs text-success font-medium">Saved to Supabase</span>
+              <span className="text-xs text-success font-medium">Saved!</span>
             </div>
           )}
           <button
             onClick={() => setShowNotificationsAdmin(true)}
-            className="p-2 rounded-xl bg-surface-2 border border-border text-foreground-subtle hover:text-foreground transition-all relative"
+            className="p-2 rounded-xl bg-surface-2 border border-border text-foreground-subtle hover:text-foreground transition-all"
           >
             <Bell size={15} />
           </button>
@@ -792,7 +776,6 @@ const Dashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
           ))}
         </div>
 
-        {/* No photo warning */}
         {noPhoto > 0 && (
           <div className="flex items-center gap-3 px-4 py-3 bg-primary/5 border border-primary/20 rounded-xl">
             <ImageIcon size={16} className="text-primary flex-shrink-0" />
@@ -802,15 +785,10 @@ const Dashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
           </div>
         )}
 
-        {/* Fetch error */}
         {fetchError && (
           <div className="flex items-start gap-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-xl">
             <AlertCircle size={15} className="text-destructive flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-semibold text-destructive">Failed to load products</p>
-              <p className="text-xs text-destructive/80 mt-0.5">{fetchError}</p>
-              <p className="text-xs text-foreground-subtle mt-1">Check your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env</p>
-            </div>
+            <p className="text-xs text-destructive">{fetchError}</p>
           </div>
         )}
 
@@ -839,14 +817,14 @@ const Dashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
             </h2>
             <div className="flex items-center gap-1">
               <Star size={11} className="text-primary" />
-              <span className="text-[10px] text-foreground-subtle">Hover to edit</span>
+              <span className="text-[10px] text-foreground-subtle">Tap to edit</span>
             </div>
           </div>
 
           {loading ? (
             <div className="py-16 flex flex-col items-center gap-3">
               <Loader2 size={24} className="animate-spin text-primary" />
-              <p className="text-xs text-foreground-subtle">Loading from Supabase...</p>
+              <p className="text-xs text-foreground-subtle">Loading...</p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="py-16 text-center">
@@ -882,7 +860,7 @@ const Dashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
   );
 };
 
-// ─── Root — protected by Supabase session ─────────────────────────────────────
+// ─── Root — auth guard ────────────────────────────────────────────────────────
 const AdminPage: React.FC = () => {
   const [checking, setChecking] = useState(true);
   const [authed, setAuthed] = useState(false);

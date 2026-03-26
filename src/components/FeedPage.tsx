@@ -23,7 +23,8 @@ export interface Product {
   comments: number;
   authentic: boolean;
   posted_ago: string;
-  // UI-computed fields that ProductCard/Modal expect
+  created_at: string;
+  // UI-computed fields
   isLiked?: boolean;
   postedAgo?: string;
   category?: string[];
@@ -42,16 +43,38 @@ interface ShopProfile {
   response_time: string;
 }
 
+// ─── Time helper ──────────────────────────────────────────────────────────────
+function timeAgo(timestamp: string): string {
+  const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
+
 // ─── Normaliser ───────────────────────────────────────────────────────────────
-// Maps a raw Supabase row to the shape ProductCard / ProductDetailModal expect.
-function normalise(row: Product, wishlistIds: Set<string>, shop: ShopProfile | null): Product {
+// isLiked is derived from likedIds (localStorage), NOT wishlist.
+// likes count always comes from the DB row (global, shared).
+function normalise(
+  row: Product,
+  wishlistIds: Set<string>,
+  likedIds: Set<string>,
+  shop: ShopProfile | null
+): Product {
   return {
     ...row,
-    isLiked: wishlistIds.has(row.id),
-    postedAgo: row.posted_ago ?? "just now",
+    isLiked: likedIds.has(row.id),           // ← driven by localStorage liked set
+    postedAgo: row.created_at ? timeAgo(row.created_at) : "just now",
     category: row.categories,
     seller: {
-      name: shop?.name ?? "Sole Vault",
+      name: shop?.name ?? "Sneaker City",
       whatsapp: shop?.whatsapp ?? "",
       verified: shop?.verified ?? true,
       responseTime: shop?.response_time ?? "Replies within 1hr",
@@ -59,7 +82,7 @@ function normalise(row: Product, wishlistIds: Set<string>, shop: ShopProfile | n
   };
 }
 
-// ─── Category filter pills ─────────────────────────────────────────────────────
+// ─── Category filter pills ────────────────────────────────────────────────────
 
 const FILTER_PILLS = [
   { label: "All", value: null },
@@ -76,11 +99,17 @@ interface FeedPageProps {
   onLike: (id: string) => void;
   onWishlistToggle: (id: string) => void;
   wishlistIds: Set<string>;
+  likedIds: Set<string>;   // ← new: passed from Index
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const FeedPage: React.FC<FeedPageProps> = ({ onLike, onWishlistToggle, wishlistIds }) => {
+const FeedPage: React.FC<FeedPageProps> = ({
+  onLike,
+  onWishlistToggle,
+  wishlistIds,
+  likedIds,
+}) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [shopProfile, setShopProfile] = useState<ShopProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,22 +128,17 @@ const FeedPage: React.FC<FeedPageProps> = ({ onLike, onWishlistToggle, wishlistI
       });
   }, []);
 
-  // ── Fetch products ───────────────────────────────────────────────────────
+  // ── Fetch products + subscribe to real-time like updates ─────────────────
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
       setError(null);
 
-      let query = supabase
+      const { data, error } = await supabase
         .from("products")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(100);
-
-      // Filter out sold-out items from main feed (optional — remove if you want them shown)
-      // query = query.neq("badge", "sold-out");
-
-      const { data, error } = await query;
 
       if (error) {
         setError(error.message);
@@ -125,6 +149,27 @@ const FeedPage: React.FC<FeedPageProps> = ({ onLike, onWishlistToggle, wishlistI
     };
 
     fetchProducts();
+
+    // Real-time subscription: when another user likes something, we get the
+    // updated row and patch our local products state so likes update live.
+    const channel = supabase
+      .channel("products-likes-channel")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "products" },
+        (payload) => {
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id === payload.new.id
+                ? { ...p, likes: (payload.new as Product).likes }
+                : p
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    return () => { channel.unsubscribe(); };
   }, []);
 
   // ── Derived: filter by active pill ──────────────────────────────────────
@@ -132,11 +177,13 @@ const FeedPage: React.FC<FeedPageProps> = ({ onLike, onWishlistToggle, wishlistI
     ? products.filter((p) => p.categories?.includes(activeFilter))
     : products;
 
-  const feedProducts = visibleProducts.map((p) => normalise(p, wishlistIds, shopProfile));
+  const feedProducts = visibleProducts.map((p) =>
+    normalise(p, wishlistIds, likedIds, shopProfile)
+  );
 
-  // ── Keep selected product in sync with wishlist state ───────────────────
+  // ── Keep selected product in sync with liked/wishlist state ──────────────
   const selectedNormalised = selectedProduct
-    ? normalise(selectedProduct, wishlistIds, shopProfile)
+    ? normalise(selectedProduct, wishlistIds, likedIds, shopProfile)
     : null;
 
   return (
@@ -146,13 +193,13 @@ const FeedPage: React.FC<FeedPageProps> = ({ onLike, onWishlistToggle, wishlistI
         <div className="flex items-center gap-2">
           <img
             src={logoImg}
-            alt="Sole Vault"
+            alt="Sneaker City"
             className="w-8 h-8 object-contain"
             loading="lazy"
             width={32}
             height={32}
           />
-          <span className="font-display text-xl text-gradient tracking-wider">SOLE VAULT</span>
+          <span className="font-display text-xl text-gradient tracking-wider">Sneaker City</span>
         </div>
         <button className="p-2 rounded-full bg-surface-2 border border-border text-foreground-muted hover:text-foreground transition-colors active:scale-90">
           <Search size={18} />

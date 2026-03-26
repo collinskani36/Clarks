@@ -34,6 +34,7 @@ interface Product {
   comments: number;
   authentic: boolean;
   posted_ago: string;
+  created_at: string;
   isLiked?: boolean;
   postedAgo?: string;
   category?: string[];
@@ -55,9 +56,10 @@ interface ShopProfile {
   verified: boolean;
 }
 
-// ─── Fallback profile (shown while loading or if table is empty) ──────────────
+// ─── Fallback profile ─────────────────────────────────────────────────────────
+
 const FALLBACK_PROFILE: ShopProfile = {
-  name: "Sole Vault",
+  name: "Sneaker City",
   tagline: "Authenticated sneakers & jerseys",
   whatsapp: "",
   rating: 4.9,
@@ -65,6 +67,12 @@ const FALLBACK_PROFILE: ShopProfile = {
   response_time: "Replies within 1hr",
   verified: true,
 };
+
+// ─── Currency formatter ───────────────────────────────────────────────────────
+
+function formatKES(amount: number): string {
+  return `KES ${amount.toLocaleString("en-KE")}`;
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -105,7 +113,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
       });
   }, []);
 
-  // ── Fetch all products (for grid + item count) ───────────────────────────
+  // ── Fetch all products ───────────────────────────────────────────────────
   useEffect(() => {
     const fetchProducts = async () => {
       setLoadingProducts(true);
@@ -120,7 +128,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
     fetchProducts();
   }, []);
 
-  // ── Logo tap (5x opens admin login) ─────────────────────────────────────
+  // ── Logo tap (5× opens admin login) ─────────────────────────────────────
   const handleLogoTap = () => {
     const next = tapCount + 1;
     setTapCount(next);
@@ -206,7 +214,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
             >
               <img
                 src={logoImg}
-                alt="Sole Vault"
+                alt="Sneaker City"
                 className="w-14 h-14 object-contain pointer-events-none"
                 loading="lazy"
                 width={56}
@@ -331,8 +339,11 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
                     <Package size={18} className="text-foreground-subtle opacity-40" />
                   </div>
                 )}
+                {/* ── Price badge in KES ── */}
                 <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/90 to-transparent flex items-end px-1.5 pb-1.5">
-                  <span className="font-display text-sm text-gradient">${product.price}</span>
+                  <span className="font-display text-xs text-gradient leading-tight">
+                    {formatKES(product.price)}
+                  </span>
                 </div>
                 {product.badge === "new-drop" && (
                   <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary shadow-glow-sm" />
@@ -361,8 +372,16 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
 
       {/* ── Admin Login Modal ─────────────────────────────────────────────── */}
       {showAdminModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm px-4 pb-6 sm:pb-0">
-          <div className="w-full max-w-sm bg-surface-1 border border-border rounded-2xl overflow-hidden shadow-lg animate-fade-up">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+          // Prevents the page behind from scrolling when modal is open
+          style={{ alignItems: "center" }}
+        >
+          {/*
+            overflow-y-auto + max-h lets the card scroll internally if the
+            keyboard squishes the viewport on older Android devices.
+          */}
+          <div className="w-full max-w-sm bg-surface-1 border border-border rounded-2xl overflow-hidden shadow-lg animate-fade-up max-h-[90dvh] overflow-y-auto">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-surface-2">
               <div className="flex items-center gap-2.5">
@@ -371,7 +390,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
                 </div>
                 <div>
                   <p className="text-sm font-bold text-foreground">Admin Access</p>
-                  <p className="text-[10px] text-foreground-subtle">Sole Vault · Restricted</p>
+                  <p className="text-[10px] text-foreground-subtle">Sneaker City · Restricted</p>
                 </div>
               </div>
               <button
@@ -391,6 +410,10 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Admin email"
                   autoComplete="email"
+                  // scrollIntoView so the field isn't hidden behind keyboard
+                  onFocus={(e) =>
+                    setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)
+                  }
                   className="w-full bg-surface-2 border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
                 />
               </div>
@@ -406,6 +429,9 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onWishlistToggle, wishlistIds
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
                   autoComplete="current-password"
+                  onFocus={(e) =>
+                    setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)
+                  }
                   className="w-full bg-surface-2 border border-border rounded-xl pl-9 pr-10 py-3 text-sm text-foreground placeholder:text-foreground-subtle focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
                 />
                 <button

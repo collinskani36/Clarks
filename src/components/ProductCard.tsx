@@ -62,18 +62,53 @@ const ProductCard: React.FC<ProductCardProps> = ({
     e.stopPropagation();
 
     const productUrl = `${window.location.origin}/product/${product.id}`;
+    const shareTitle = product.name;
     const shareText = `🔥 Check out this ${product.name} on Sneaker City!\n\nCondition: ${product.condition}/10 · Size: ${product.size} · KES ${product.price.toLocaleString()}\n\n${productUrl}`;
 
     if (navigator.share) {
+      // ── Try sharing with the product image (mobile Chrome/Safari) ──────────
+      const imageUrl = product.images[imgIndex] ?? product.images[0];
+
+      if (imageUrl && navigator.canShare) {
+        try {
+          // Fetch the image from Supabase Storage and convert to a File
+          const response = await fetch(imageUrl);
+          const blob = await response.blob();
+          const ext = blob.type.includes("png") ? "png" : "jpg";
+          const imageFile = new File(
+            [blob],
+            `${product.name.replace(/\s+/g, "-").toLowerCase()}.${ext}`,
+            { type: blob.type }
+          );
+
+          const shareDataWithFile = {
+            title: shareTitle,
+            text: shareText,
+            url: productUrl,
+            files: [imageFile],
+          };
+
+          // Only share with file if the browser supports it
+          if (navigator.canShare(shareDataWithFile)) {
+            await navigator.share(shareDataWithFile);
+            return;
+          }
+        } catch (err) {
+          if ((err as Error).name === "AbortError") return;
+          // Image fetch failed — fall through to text-only share below
+        }
+      }
+
+      // ── Text + link only (image unavailable or unsupported) ────────────────
       try {
-        await navigator.share({ title: product.name, text: shareText, url: productUrl });
+        await navigator.share({ title: shareTitle, text: shareText, url: productUrl });
         return;
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
       }
     }
 
-    // Fallback: WhatsApp share
+    // ── Final fallback: open WhatsApp share directly ────────────────────────
     window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank");
   };
 

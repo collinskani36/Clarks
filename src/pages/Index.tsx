@@ -61,21 +61,17 @@ const PhonePopup: React.FC<PhonePopupProps> = ({ onSave, onSkip }) => {
   };
 
   return (
-    /* Backdrop */
     <div
       className="fixed inset-0 z-50 flex items-end justify-center"
       style={{ backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
       onClick={(e) => e.target === e.currentTarget && onSkip()}
     >
-      {/* Sheet */}
       <div
         className="w-full max-w-md rounded-t-3xl border-t border-border p-6 pb-10 animate-slide-up"
         style={{ backgroundColor: "hsl(var(--surface-1))" }}
       >
-        {/* Handle */}
         <div className="w-10 h-1 rounded-full bg-border mx-auto mb-6" />
 
-        {/* Icon */}
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
           style={{ background: "hsl(var(--gradient-primary, var(--primary)))" }}
@@ -97,7 +93,6 @@ const PhonePopup: React.FC<PhonePopupProps> = ({ onSave, onSkip }) => {
           </div>
         ) : (
           <>
-            {/* Input */}
             <div className="flex items-center gap-2 bg-surface-2 border border-border rounded-xl px-4 py-3 mb-3">
               <span className="text-foreground-muted text-sm">📱</span>
               <input
@@ -115,7 +110,6 @@ const PhonePopup: React.FC<PhonePopupProps> = ({ onSave, onSkip }) => {
               <p className="text-xs text-destructive mb-3 text-center">{error}</p>
             )}
 
-            {/* Save button */}
             <button
               onClick={handleSave}
               disabled={saving}
@@ -124,7 +118,6 @@ const PhonePopup: React.FC<PhonePopupProps> = ({ onSave, onSkip }) => {
               {saving ? "Saving..." : "Save My Picks"}
             </button>
 
-            {/* Skip */}
             <button
               onClick={onSkip}
               className="w-full py-2 text-sm text-foreground-muted hover:text-foreground transition-colors"
@@ -143,41 +136,51 @@ const PhonePopup: React.FC<PhonePopupProps> = ({ onSave, onSkip }) => {
 };
 
 // ─── Index ────────────────────────────────────────────────────────────────────
-
 const Index = () => {
   const [activeTab, setActiveTab] = useState<Tab>("feed");
-
-  // Wishlist: loaded from localStorage on mount
   const [wishlistIds, setWishlistIds] = useState<Set<string>>(() => loadSet(LS_WISHLIST));
-
-  // Liked: loaded from localStorage on mount
   const [likedIds, setLikedIds] = useState<Set<string>>(() => loadSet(LS_LIKED));
-
-  // Notification count from Supabase
   const [notificationCount, setNotificationCount] = useState(0);
-
-  // Popup
   const [showPopup, setShowPopup] = useState(false);
 
-  // ── Persist wishlist to localStorage ──────────────────────────────────────
+  // ── Back button interception ───────────────────────────────────────────────
+  useEffect(() => {
+    if (activeTab === "feed") {
+      window.history.replaceState({ tab: "feed" }, "");
+    } else {
+      window.history.pushState({ tab: activeTab }, "");
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (activeTab !== "feed") {
+        setActiveTab("feed");
+        window.history.pushState({ tab: "feed" }, "");
+      } else {
+        window.history.back();
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [activeTab]);
+
+  // ── Persist wishlist ───────────────────────────────────────────────────────
   useEffect(() => {
     saveSet(LS_WISHLIST, wishlistIds);
     maybeShowPopup(wishlistIds, likedIds);
   }, [wishlistIds]);
 
-  // ── Persist liked to localStorage ─────────────────────────────────────────
   useEffect(() => {
     saveSet(LS_LIKED, likedIds);
     maybeShowPopup(wishlistIds, likedIds);
   }, [likedIds]);
 
-  // ── Popup trigger logic ────────────────────────────────────────────────────
   const maybeShowPopup = (wl: Set<string>, lk: Set<string>) => {
     const alreadyShown = localStorage.getItem(LS_POPUP_SHOWN) === "true";
     if (alreadyShown) return;
-    if (wl.size >= 4 || lk.size >= 4) {
-      setShowPopup(true);
-    }
+    if (wl.size >= 4 || lk.size >= 4) setShowPopup(true);
   };
 
   // ── Notification count ─────────────────────────────────────────────────────
@@ -217,11 +220,9 @@ const Index = () => {
   }, []);
 
   // ── Like handler ───────────────────────────────────────────────────────────
-  // Toggles local liked state + atomically updates Supabase likes count.
   const handleLike = useCallback(async (id: string) => {
     const isCurrentlyLiked = likedIds.has(id);
 
-    // 1. Optimistic local update
     setLikedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -229,9 +230,7 @@ const Index = () => {
       return next;
     });
 
-    // 2. Atomic Supabase increment / decrement
     try {
-      // Fetch current likes count first (needed for atomic-safe update)
       const { data: current, error: fetchError } = await supabase
         .from("products")
         .select("likes")
@@ -241,14 +240,9 @@ const Index = () => {
       if (fetchError || !current) return;
 
       const newLikes = Math.max(0, (current.likes ?? 0) + (isCurrentlyLiked ? -1 : 1));
-
-      await supabase
-        .from("products")
-        .update({ likes: newLikes })
-        .eq("id", id);
+      await supabase.from("products").update({ likes: newLikes }).eq("id", id);
     } catch (err) {
       console.error("Failed to update likes:", err);
-      // Rollback optimistic update on failure
       setLikedIds((prev) => {
         const next = new Set(prev);
         if (isCurrentlyLiked) next.add(id);
@@ -258,7 +252,7 @@ const Index = () => {
     }
   }, [likedIds]);
 
-  // ── Popup: save to Supabase ────────────────────────────────────────────────
+  // ── Popup handlers ─────────────────────────────────────────────────────────
   const handlePopupSave = async (phone: string) => {
     const { error } = await supabase
       .from("wishlists")
@@ -277,7 +271,6 @@ const Index = () => {
     if (error) throw new Error(error.message);
   };
 
-  // ── Popup: dismiss ─────────────────────────────────────────────────────────
   const handlePopupSkip = () => {
     localStorage.setItem(LS_POPUP_SHOWN, "true");
     setShowPopup(false);
@@ -289,15 +282,10 @@ const Index = () => {
       className="flex justify-center items-stretch min-h-screen"
       style={{ backgroundColor: "hsl(220 18% 4%)" }}
     >
-      {/* Phone frame */}
       <div
         className="relative w-full max-w-md flex flex-col overflow-hidden"
-        style={{
-          height: "100dvh",
-          backgroundColor: "hsl(var(--background))",
-        }}
+        style={{ height: "100dvh", backgroundColor: "hsl(var(--background))" }}
       >
-        {/* Page content */}
         <main className="flex-1 overflow-hidden">
           <div className="h-full overflow-hidden">
             {activeTab === "feed" && (
@@ -342,7 +330,6 @@ const Index = () => {
           </div>
         </main>
 
-        {/* Bottom navigation */}
         <BottomNav
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -350,7 +337,6 @@ const Index = () => {
           notificationCount={notificationCount}
         />
 
-        {/* Phone number popup — rendered inside phone frame so it's bounded */}
         {showPopup && (
           <PhonePopup onSave={handlePopupSave} onSkip={handlePopupSkip} />
         )}

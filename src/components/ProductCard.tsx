@@ -62,16 +62,23 @@ const ProductCard: React.FC<ProductCardProps> = ({
     e.stopPropagation();
 
     const productUrl = `${window.location.origin}/product/${product.id}`;
-    const shareTitle = product.name;
-    const shareText = `🔥 Check out this ${product.name} on Sneaker City!\n\nCondition: ${product.condition}/10 · Size: ${product.size} · KES ${product.price.toLocaleString()}\n\n${productUrl}`;
+
+    // URL is embedded inside text so WhatsApp always shows the full message.
+    // Passing url separately causes WhatsApp to drop the text and show only the link.
+    const shareText =
+      `🔥 Check out this ${product.name} on Sneaker City!\n\n` +
+      `👟 Brand: ${product.brand}\n` +
+      `📦 Condition: ${product.condition}/10\n` +
+      `📐 Size: ${product.size}\n` +
+      `💰 KES ${product.price.toLocaleString()}\n\n` +
+      `${productUrl}`;
 
     if (navigator.share) {
-      // ── Try sharing with the product image (mobile Chrome/Safari) ──────────
       const imageUrl = product.images[imgIndex] ?? product.images[0];
 
+      // ── Try sharing with image (Chrome Android, Safari iOS) ────────────────
       if (imageUrl && navigator.canShare) {
         try {
-          // Fetch the image from Supabase Storage and convert to a File
           const response = await fetch(imageUrl);
           const blob = await response.blob();
           const ext = blob.type.includes("png") ? "png" : "jpg";
@@ -81,34 +88,33 @@ const ProductCard: React.FC<ProductCardProps> = ({
             { type: blob.type }
           );
 
+          // Do NOT pass url when sharing files — it conflicts with text on some browsers
           const shareDataWithFile = {
-            title: shareTitle,
+            title: product.name,
             text: shareText,
-            url: productUrl,
             files: [imageFile],
           };
 
-          // Only share with file if the browser supports it
           if (navigator.canShare(shareDataWithFile)) {
             await navigator.share(shareDataWithFile);
             return;
           }
         } catch (err) {
           if ((err as Error).name === "AbortError") return;
-          // Image fetch failed — fall through to text-only share below
+          // Image fetch failed — fall through to text-only
         }
       }
 
-      // ── Text + link only (image unavailable or unsupported) ────────────────
+      // ── Text only (no image or unsupported) ────────────────────────────────
       try {
-        await navigator.share({ title: shareTitle, text: shareText, url: productUrl });
+        await navigator.share({ title: product.name, text: shareText });
         return;
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
       }
     }
 
-    // ── Final fallback: open WhatsApp share directly ────────────────────────
+    // ── Final fallback: open WhatsApp directly ─────────────────────────────
     window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank");
   };
 

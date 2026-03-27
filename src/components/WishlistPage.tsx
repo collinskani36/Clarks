@@ -71,7 +71,7 @@ const WishlistPage: React.FC<WishlistPageProps> = ({ wishlistIds, onWishlistTogg
       </div>
 
       {selectedProduct && (
-        <ProductDetailModal product={{ ...selectedProduct, isLiked: wishlistIds.has(selectedProduct.id) }} onClose={() => setSelectedProduct(null)} onWishlistToggle={onWishlistToggle} />
+        <ProductDetailModal product={{ ...selectedProduct, isLiked: wishlistIds.has(selectedProduct.id) }} onClose={() => setSelectedProduct(null)} onWishlistToggle={onWishlistToggle} wishlistIds={wishlistIds} />
       )}
     </div>
   );

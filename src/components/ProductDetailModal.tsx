@@ -1,19 +1,53 @@
-import React, { useState } from "react";
-
-import { Heart, MessageCircle, Share2, MessageSquare, Star, ShieldCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Heart, Share2, ShieldCheck, ChevronLeft, ChevronRight, Star } from "lucide-react";
 import { Product } from "@/hooks/useProducts";
+import { setProductMeta, clearProductMeta } from "@/lib/og-meta";
+
 interface ProductDetailModalProps {
   product: Product | null;
   onClose: () => void;
   onWishlistToggle: (id: string) => void;
+  wishlistIds: Set<string>;
 }
 
-const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClose, onWishlistToggle }) => {
+const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
+  product,
+  onClose,
+  onWishlistToggle,
+  wishlistIds,
+}) => {
   const [currentImage, setCurrentImage] = useState(0);
-  const [liked, setLiked] = useState(false);
+
+  // ── OG meta: set when product loads, clear when modal closes ──────────────
+  useEffect(() => {
+    if (product) setProductMeta(product);
+    return () => clearProductMeta();
+  }, [product]);
+
+  // Reset image index when product changes
+  useEffect(() => {
+    setCurrentImage(0);
+  }, [product?.id]);
 
   if (!product) return null;
 
+  // ── Derived state — driven by parent wishlistIds, not local state ──────────
+  const isWishlisted = wishlistIds.has(product.id);
+
+  // ── Seller defaults ────────────────────────────────────────────────────────
+  const sellerName = product.seller?.name || "Sneaker City";
+  const sellerVerified = product.seller?.verified ?? true;
+  const sellerResponseTime = product.seller?.responseTime || "Replies within 1hr";
+
+  // Initials derived from seller name (e.g. "Sneaker City" → "SC")
+  const initials = sellerName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  // ── WhatsApp enquiry ───────────────────────────────────────────────────────
   const handleWhatsApp = () => {
     const msg = encodeURIComponent(
       `Hi, I'm interested in this item. Is it still available?\n\n*${product.name}*\nCondition: ${product.condition}/10\nSize: ${product.size}\nPrice: KES ${product.price.toLocaleString()}`
@@ -22,16 +56,40 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
     window.open(`https://wa.me/${whatsappNumber}?text=${msg}`, "_blank");
   };
 
-  const prevImage = () => setCurrentImage((p) => (p === 0 ? product.images.length - 1 : p - 1));
-  const nextImage = () => setCurrentImage((p) => (p === product.images.length - 1 ? 0 : p + 1));
+  // ── Share — same logic as ProductCard (text+link, no files) ───────────────
+  const handleShare = async () => {
+    const productUrl = `${window.location.origin}/product/${product.id}`;
+    const shareText =
+      `🔥 Check out this ${product.name} on Sneaker City!\n\n` +
+      `👟 Brand: ${product.brand}\n` +
+      `📦 Condition: ${product.condition}/10\n` +
+      `📐 Size: ${product.size}\n` +
+      `💰 KES ${product.price.toLocaleString()}\n\n` +
+      `${productUrl}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: product.name, text: shareText });
+        return;
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank");
+  };
+
+  // ── Image nav ──────────────────────────────────────────────────────────────
+  const prevImage = () =>
+    setCurrentImage((p) => (p === 0 ? product.images.length - 1 : p - 1));
+  const nextImage = () =>
+    setCurrentImage((p) => (p === product.images.length - 1 ? 0 : p + 1));
 
   const conditionColor =
-    product.condition >= 9 ? "hsl(var(--success))" : product.condition >= 7 ? "hsl(var(--primary))" : "hsl(var(--destructive))";
-
-  // Safe seller data with defaults
-  const sellerName = product.seller?.name || "Sole Vault";
-  const sellerVerified = product.seller?.verified ?? true;
-  const sellerResponseTime = product.seller?.responseTime || "Replies within 1hr";
+    product.condition >= 9
+      ? "hsl(var(--success))"
+      : product.condition >= 7
+      ? "hsl(var(--primary))"
+      : "hsl(var(--destructive))";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center animate-fade-up">
@@ -41,7 +99,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
         className="relative w-full max-w-md bg-surface-1 rounded-t-3xl overflow-hidden animate-slide-in-bottom z-10"
         style={{ maxHeight: "95vh", overflowY: "auto" }}
       >
-        {/* Close bar */}
+        {/* ── Close bar ──────────────────────────────────────────────────── */}
         <div className="sticky top-0 z-10 glass-dark px-4 py-3 flex items-center justify-between border-b border-border">
           <button
             onClick={onClose}
@@ -50,22 +108,23 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
             <ChevronLeft size={20} />
             <span className="text-sm font-medium">Back</span>
           </button>
+
+          {/* Wishlist star in header */}
           <button
-            onClick={() => {
-              onWishlistToggle(product.id);
-              setLiked((l) => !l);
-            }}
+            onClick={() => onWishlistToggle(product.id)}
             className="p-2 rounded-full bg-surface-2 transition-all duration-200 active:scale-90"
+            aria-label={isWishlisted ? "Remove from wishlist" : "Save to wishlist"}
           >
-            <Heart
+            <Star
               size={18}
-              fill={liked || product.isLiked ? "hsl(var(--primary))" : "none"}
-              color={liked || product.isLiked ? "hsl(var(--primary))" : "hsl(var(--foreground-muted))"}
+              fill={isWishlisted ? "hsl(var(--primary))" : "none"}
+              color={isWishlisted ? "hsl(var(--primary))" : "hsl(var(--foreground-muted))"}
+              strokeWidth={1.8}
             />
           </button>
         </div>
 
-        {/* Image Gallery */}
+        {/* ── Image gallery ───────────────────────────────────────────────── */}
         <div className="relative bg-surface-2 aspect-square overflow-hidden">
           <img
             src={product.images[currentImage]}
@@ -73,7 +132,6 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
             className="w-full h-full object-cover transition-opacity duration-300"
           />
 
-          {/* Side nav buttons */}
           {product.images.length > 1 && (
             <>
               <button
@@ -119,12 +177,15 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
           )}
         </div>
 
-        {/* Product Info */}
+        {/* ── Product info ────────────────────────────────────────────────── */}
         <div className="p-5 space-y-4">
+
           {/* Name + price */}
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs text-foreground-muted font-medium uppercase tracking-wider mb-0.5">{product.brand}</p>
+              <p className="text-xs text-foreground-muted font-medium uppercase tracking-wider mb-0.5">
+                {product.brand}
+              </p>
               <h2 className="text-xl font-bold text-foreground leading-tight">{product.name}</h2>
               <p className="text-sm text-foreground-muted mt-1">{product.size}</p>
             </div>
@@ -136,27 +197,24 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
 
           {/* Stats row */}
           <div className="flex gap-3">
-            {/* Condition */}
             <div className="flex-1 bg-surface-2 rounded-xl p-3 flex flex-col items-center gap-1">
               <p className="text-xs text-foreground-muted">Condition</p>
               <p className="text-2xl font-display" style={{ color: conditionColor }}>
                 {product.condition}/10
               </p>
             </div>
-
-            {/* Authentic */}
             <div className="flex-1 bg-surface-2 rounded-xl p-3 flex flex-col items-center gap-1">
               <p className="text-xs text-foreground-muted">Authentic</p>
               <div className="flex items-center gap-1">
                 <ShieldCheck size={16} color="hsl(var(--success))" />
-                <p className="text-sm font-semibold text-success">Verified</p>
+                <p className="text-sm font-semibold" style={{ color: "hsl(var(--success))" }}>
+                  Verified
+                </p>
               </div>
             </div>
-
-            {/* Likes */}
             <div className="flex-1 bg-surface-2 rounded-xl p-3 flex flex-col items-center gap-1">
               <p className="text-xs text-foreground-muted">Likes</p>
-              <p className="text-lg font-bold text-foreground">{product.likes + (liked ? 1 : 0)}</p>
+              <p className="text-lg font-bold text-foreground">{product.likes}</p>
             </div>
           </div>
 
@@ -169,7 +227,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
           {/* Seller info */}
           <div className="bg-surface-2 rounded-xl p-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
-              <span className="font-display text-primary-foreground text-sm">SV</span>
+              <span className="font-display text-primary-foreground text-sm">{initials}</span>
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-1.5">
@@ -186,7 +244,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
             </div>
           </div>
 
-          {/* CTA Buttons */}
+          {/* CTA buttons */}
           <div className="space-y-3 pb-2">
             <button
               onClick={handleWhatsApp}
@@ -199,22 +257,26 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClos
             </button>
 
             <div className="flex gap-2">
+              {/* Wishlist button */}
               <button
-                onClick={() => {
-                  onWishlistToggle(product.id);
-                  setLiked((l) => !l);
-                }}
+                onClick={() => onWishlistToggle(product.id)}
                 className="flex-1 py-3 rounded-2xl bg-surface-2 border border-border flex items-center justify-center gap-2 font-semibold text-sm text-foreground active:scale-95 transition-all"
               >
-                <Heart
-                  size={16}
-                  fill={liked || product.isLiked ? "hsl(var(--primary))" : "none"}
-                  color={liked || product.isLiked ? "hsl(var(--primary))" : "currentColor"}
+                <Star
+                  size={15}
+                  fill={isWishlisted ? "hsl(var(--primary))" : "none"}
+                  color={isWishlisted ? "hsl(var(--primary))" : "currentColor"}
+                  strokeWidth={1.8}
                 />
-                {liked || product.isLiked ? "Saved" : "Save"}
+                {isWishlisted ? "Saved" : "Save"}
               </button>
-              <button className="flex-1 py-3 rounded-2xl bg-surface-2 border border-border flex items-center justify-center gap-2 font-semibold text-sm text-foreground active:scale-95 transition-all">
-                <Share2 size={16} />
+
+              {/* Share button */}
+              <button
+                onClick={handleShare}
+                className="flex-1 py-3 rounded-2xl bg-surface-2 border border-border flex items-center justify-center gap-2 font-semibold text-sm text-foreground active:scale-95 transition-all"
+              >
+                <Share2 size={15} />
                 Share
               </button>
             </div>

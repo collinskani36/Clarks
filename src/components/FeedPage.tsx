@@ -265,6 +265,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
           product={selectedNormalised}
           onClose={() => setSelectedProduct(null)}
           onWishlistToggle={onWishlistToggle}
+          wishlistIds={wishlistIds}
         />
       )}
     </div>

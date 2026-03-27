@@ -1,21 +1,32 @@
 import React, { useState, useRef } from "react";
 import { Product } from "@/hooks/useProducts";
-import { Heart, MessageCircle, Share2, ShieldCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import { Heart, MessageCircle, Share2, ShieldCheck, ChevronLeft, ChevronRight, Star } from "lucide-react";
 
 interface ProductCardProps {
   product: Product;
   onLike: (productId: string) => void;
   onOpenDetail: (product: Product) => void;
   onWishlistToggle: (productId: string) => void;
+  wishlistIds: Set<string>;
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, onLike, onOpenDetail, onWishlistToggle }) => {
+const ProductCard: React.FC<ProductCardProps> = ({
+  product,
+  onLike,
+  onOpenDetail,
+  onWishlistToggle,
+  wishlistIds,
+}) => {
   const [imgIndex, setImgIndex] = useState(0);
   const [liked, setLiked] = useState(product.isLiked);
   const [likeAnim, setLikeAnim] = useState(false);
   const [likeCount, setLikeCount] = useState(product.likes);
+  const [starAnim, setStarAnim] = useState(false);
   const touchStartX = useRef<number | null>(null);
 
+  const isWishlisted = wishlistIds.has(product.id);
+
+  // ── Like ──────────────────────────────────────────────────────────────────
   const handleLike = (e: React.MouseEvent) => {
     e.stopPropagation();
     setLiked((l) => {
@@ -38,14 +49,47 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onLike, onOpenDetail
     }
   };
 
+  // ── Wishlist ───────────────────────────────────────────────────────────────
+  const handleWishlist = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setStarAnim(true);
+    setTimeout(() => setStarAnim(false), 400);
+    onWishlistToggle(product.id);
+  };
+
+  // ── Share ─────────────────────────────────────────────────────────────────
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    const productUrl = `${window.location.origin}/product/${product.id}`;
+    const shareText = `🔥 Check out this ${product.name} on Sneaker City!\n\nCondition: ${product.condition}/10 · Size: ${product.size} · KES ${product.price.toLocaleString()}\n\n${productUrl}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: product.name, text: shareText, url: productUrl });
+        return;
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+      }
+    }
+
+    // Fallback: WhatsApp share
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank");
+  };
+
+  // ── WhatsApp seller ────────────────────────────────────────────────────────
   const handleWhatsApp = (e: React.MouseEvent) => {
     e.stopPropagation();
     const msg = encodeURIComponent(
       `Hi, I'm interested in this item. Is it still available?\n\n*${product.name}*\nCondition: ${product.condition}/10\nSize: ${product.size}\nPrice: KES ${product.price.toLocaleString()}`
     );
-    window.open(`https://wa.me/${product.seller.whatsapp.replace(/\D/g, "")}?text=${msg}`, "_blank");
+    window.open(
+      `https://wa.me/${product.seller?.whatsapp?.replace(/\D/g, "") ?? ""}?text=${msg}`,
+      "_blank"
+    );
   };
 
+  // ── Image carousel ────────────────────────────────────────────────────────
   const prevImg = (e: React.MouseEvent) => {
     e.stopPropagation();
     setImgIndex((i) => (i === 0 ? product.images.length - 1 : i - 1));
@@ -77,17 +121,25 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onLike, onOpenDetail
       ? "hsl(var(--primary))"
       : "hsl(var(--destructive))";
 
+  // Initials from seller name (e.g. "Sneaker City" → "SC")
+  const initials = (product.seller?.name ?? "SC")
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
     <article className="w-full bg-surface-1 rounded-2xl overflow-hidden border border-border shadow-md animate-fade-up">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center shadow-glow-sm">
-          <span className="font-display text-primary-foreground text-sm">SV</span>
+          <span className="font-display text-primary-foreground text-sm">{initials}</span>
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="text-sm font-semibold text-foreground">{product.seller.name}</p>
-            {product.seller.verified && (
+            <p className="text-sm font-semibold text-foreground">{product.seller?.name}</p>
+            {product.seller?.verified && (
               <ShieldCheck size={13} color="hsl(var(--primary))" fill="hsl(var(--primary))" />
             )}
           </div>
@@ -125,7 +177,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onLike, onOpenDetail
           </div>
         )}
 
-        {/* Carousel nav (only if multiple images) */}
+        {/* Carousel nav */}
         {product.images.length > 1 && (
           <>
             <button
@@ -180,9 +232,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onLike, onOpenDetail
 
       {/* Actions */}
       <div className="px-4 pt-3 pb-1 flex items-center gap-4">
+
+        {/* Like */}
         <button
           onClick={handleLike}
           className="flex items-center gap-1.5 active:scale-90 transition-all"
+          aria-label="Like"
         >
           <Heart
             size={22}
@@ -191,17 +246,41 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onLike, onOpenDetail
             className={likeAnim ? "animate-like-beat" : ""}
           />
         </button>
+
+        {/* Comment / open detail */}
         <button
           onClick={() => onOpenDetail(product)}
           className="flex items-center gap-1.5 text-foreground-muted active:scale-90 transition-all hover:text-foreground"
+          aria-label="View details"
         >
           <MessageCircle size={22} strokeWidth={1.8} />
         </button>
-        <button className="flex items-center gap-1.5 text-foreground-muted active:scale-90 transition-all hover:text-foreground">
+
+        {/* Share */}
+        <button
+          onClick={handleShare}
+          className="flex items-center gap-1.5 text-foreground-muted active:scale-90 transition-all hover:text-foreground"
+          aria-label="Share"
+        >
           <Share2 size={20} strokeWidth={1.8} />
         </button>
 
-        {/* Message Seller CTA */}
+        {/* Wishlist star */}
+        <button
+          onClick={handleWishlist}
+          className="flex items-center gap-1.5 active:scale-90 transition-all ml-1"
+          aria-label={isWishlisted ? "Remove from wishlist" : "Save to wishlist"}
+        >
+          <Star
+            size={21}
+            fill={isWishlisted ? "hsl(var(--primary))" : "none"}
+            color={isWishlisted ? "hsl(var(--primary))" : "hsl(var(--foreground-muted))"}
+            strokeWidth={1.8}
+            className={starAnim ? "animate-like-beat" : "transition-colors duration-200"}
+          />
+        </button>
+
+        {/* Message Seller */}
         <button
           onClick={handleWhatsApp}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-whatsapp text-white text-xs font-bold shadow-sm active:scale-95 transition-all"
@@ -213,15 +292,20 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onLike, onOpenDetail
         </button>
       </div>
 
-      {/* Likes + product name */}
+      {/* Likes + product info */}
       <div className="px-4 pb-4 pt-1">
         <p className="text-sm font-semibold text-foreground mb-0.5">{likeCount.toLocaleString()} likes</p>
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-bold text-foreground">{product.seller.name}</span>
-          <span className="text-sm text-foreground-muted truncate">{product.name} · {product.size}</span>
+          <span className="text-sm font-bold text-foreground">{product.seller?.name}</span>
+          <span className="text-sm text-foreground-muted truncate">
+            {product.name} · {product.size}
+          </span>
         </div>
         {product.comments > 0 && (
-          <p className="text-xs text-foreground-subtle mt-0.5 cursor-pointer hover:text-foreground-muted transition-colors">
+          <p
+            className="text-xs text-foreground-subtle mt-0.5 cursor-pointer hover:text-foreground-muted transition-colors"
+            onClick={() => onOpenDetail(product)}
+          >
             View all {product.comments} comments
           </p>
         )}

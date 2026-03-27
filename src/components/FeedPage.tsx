@@ -1,40 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { Product } from "@/hooks/useProducts";
 import ProductCard from "./ProductCard";
 import ProductDetailModal from "./ProductDetailModal";
 import { Search, Crown, Loader2 } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// Re-export so any file that imported Product from FeedPage still compiles
+export type { Product };
 
-export interface Product {
-  id: string;
-  name: string;
-  brand: string;
-  price: number;
-  condition: number;
-  size: string;
-  categories: string[];
-  images: string[];
-  description: string;
-  badge: "new-drop" | "only-1-left" | "sold-out" | null;
-  is_liked: boolean;
-  likes: number;
-  comments: number;
-  authentic: boolean;
-  posted_ago: string;
-  created_at: string;
-  // UI-computed fields
-  isLiked?: boolean;
-  postedAgo?: string;
-  category?: string[];
-  seller?: {
-    name: string;
-    whatsapp: string;
-    verified: boolean;
-    responseTime: string;
-  };
-}
+// ─── Shop profile ─────────────────────────────────────────────────────────────
 
 interface ShopProfile {
   name: string;
@@ -60,8 +35,8 @@ function timeAgo(timestamp: string): string {
 }
 
 // ─── Normaliser ───────────────────────────────────────────────────────────────
-// isLiked is derived from likedIds (localStorage), NOT wishlist.
-// likes count always comes from the DB row (global, shared).
+// isLiked driven by localStorage likedIds — NOT wishlist.
+// likes count always comes from the DB row (globally shared).
 function normalise(
   row: Product,
   wishlistIds: Set<string>,
@@ -70,8 +45,8 @@ function normalise(
 ): Product {
   return {
     ...row,
-    isLiked: likedIds.has(row.id),           // ← driven by localStorage liked set
-    postedAgo: row.created_at ? timeAgo(row.created_at) : "just now",
+    isLiked: likedIds.has(row.id),
+    postedAgo: row.created_at ? timeAgo(row.created_at) : (row.posted_ago ?? "just now"),
     category: row.categories,
     seller: {
       name: shop?.name ?? "Sneaker City",
@@ -99,7 +74,7 @@ interface FeedPageProps {
   onLike: (id: string) => void;
   onWishlistToggle: (id: string) => void;
   wishlistIds: Set<string>;
-  likedIds: Set<string>;   // ← new: passed from Index
+  likedIds: Set<string>;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -117,6 +92,12 @@ const FeedPage: React.FC<FeedPageProps> = ({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
 
+  // Explicit typed callback fixes the TS error:
+  // "Dispatch<SetStateAction<Product | null>>" is not assignable to "(product: Product) => void"
+  const handleOpenDetail = useCallback((product: Product) => {
+    setSelectedProduct(product);
+  }, []);
+
   // ── Fetch shop profile once ──────────────────────────────────────────────
   useEffect(() => {
     supabase
@@ -128,7 +109,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
       });
   }, []);
 
-  // ── Fetch products + subscribe to real-time like updates ─────────────────
+  // ── Fetch products + subscribe to real-time like count updates ────────────
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
@@ -150,8 +131,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
 
     fetchProducts();
 
-    // Real-time subscription: when another user likes something, we get the
-    // updated row and patch our local products state so likes update live.
+    // Real-time: when any user likes a product, patch likes count live
     const channel = supabase
       .channel("products-likes-channel")
       .on(
@@ -172,7 +152,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
     return () => { channel.unsubscribe(); };
   }, []);
 
-  // ── Derived: filter by active pill ──────────────────────────────────────
+  // ── Derived: filter + normalise ──────────────────────────────────────────
   const visibleProducts = activeFilter
     ? products.filter((p) => p.categories?.includes(activeFilter))
     : products;
@@ -181,11 +161,11 @@ const FeedPage: React.FC<FeedPageProps> = ({
     normalise(p, wishlistIds, likedIds, shopProfile)
   );
 
-  // ── Keep selected product in sync with liked/wishlist state ──────────────
   const selectedNormalised = selectedProduct
     ? normalise(selectedProduct, wishlistIds, likedIds, shopProfile)
     : null;
 
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
@@ -199,7 +179,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
             width={32}
             height={32}
           />
-          <span className="font-display text-xl text-gradient tracking-wider">Sneaker City</span>
+          <span className="font-display text-xl text-gradient tracking-wider">SNEAKER CITY</span>
         </div>
         <button className="p-2 rounded-full bg-surface-2 border border-border text-foreground-muted hover:text-foreground transition-colors active:scale-90">
           <Search size={18} />
@@ -227,7 +207,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-md mx-auto space-y-4 p-3 pb-24">
 
-          {/* Loading state */}
+          {/* Loading */}
           {loading && (
             <div className="flex flex-col items-center py-16 gap-3">
               <Loader2 size={24} className="animate-spin text-primary" />
@@ -235,7 +215,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
             </div>
           )}
 
-          {/* Error state */}
+          {/* Error */}
           {!loading && error && (
             <div className="text-center py-10">
               <p className="text-destructive text-sm font-semibold">Failed to load products</p>
@@ -243,7 +223,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
             </div>
           )}
 
-          {/* Empty state */}
+          {/* Empty */}
           {!loading && !error && feedProducts.length === 0 && (
             <div className="text-center py-16 text-foreground-subtle text-sm">
               <Crown size={20} className="mx-auto mb-3 text-primary opacity-30" />
@@ -254,7 +234,7 @@ const FeedPage: React.FC<FeedPageProps> = ({
             </div>
           )}
 
-          {/* Product cards */}
+          {/* Cards */}
           {!loading &&
             !error &&
             feedProducts.map((product) => (
@@ -262,12 +242,13 @@ const FeedPage: React.FC<FeedPageProps> = ({
                 key={product.id}
                 product={product}
                 onLike={onLike}
-                onOpenDetail={setSelectedProduct}
+                onOpenDetail={handleOpenDetail}
                 onWishlistToggle={onWishlistToggle}
+                wishlistIds={wishlistIds}
               />
             ))}
 
-          {/* End-of-feed indicator */}
+          {/* End of feed */}
           {!loading && !error && feedProducts.length > 0 && (
             <div className="text-center py-8 text-foreground-subtle text-sm">
               <Crown size={20} className="mx-auto mb-2 text-primary opacity-50" />

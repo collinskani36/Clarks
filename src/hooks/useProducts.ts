@@ -17,6 +17,7 @@ export interface Product {
   comments: number;
   authentic: boolean;
   posted_ago: string;
+  created_at: string;        // ← added: used by FeedPage timeAgo() and real-time patch
   // Computed for UI compatibility:
   isLiked?: boolean;
   postedAgo?: string;
@@ -39,13 +40,32 @@ export interface ShopProfile {
   verified: boolean;
 }
 
-// Normalise DB row to match shape ProductCard/Modal expect
-export function normaliseProduct(row: Product, wishlistIds?: Set<string>): Product {
+/**
+ * Normalise a DB row to the shape ProductCard / Modal expect.
+ *
+ * @param row        Raw product row from Supabase
+ * @param wishlistIds  Set of IDs the user has starred/saved (optional)
+ * @param likedIds     Set of IDs the user has liked via the global like system (optional)
+ *
+ * Priority for isLiked:
+ *   1. likedIds set  (localStorage liked system — most accurate)
+ *   2. wishlistIds set (legacy fallback if likedIds not passed)
+ *   3. row.is_liked  (DB field fallback)
+ */
+export function normaliseProduct(
+  row: Product,
+  wishlistIds?: Set<string>,
+  likedIds?: Set<string>
+): Product {
   return {
     ...row,
-    isLiked: wishlistIds ? wishlistIds.has(row.id) : row.is_liked,
+    isLiked: likedIds
+      ? likedIds.has(row.id)
+      : wishlistIds
+      ? wishlistIds.has(row.id)
+      : row.is_liked,
     postedAgo: row.posted_ago,
-    category: row.categories,  // CategoriesPage uses p.category
+    category: row.categories, // CategoriesPage uses p.category
   };
 }
 
